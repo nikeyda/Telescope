@@ -102,25 +102,42 @@ final class SessionUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--test-library", UUID().uuidString, "-AppleLanguages", "(zh-Hans)"]
         app.launch()
-        XCTAssertTrue(app.buttons["library.new"].firstMatch.waitForExistence(timeout: 10))
 
-        let id = UUID().uuidString
-        let file = FileManager.default.temporaryDirectory.appending(path: id + ".screens")
-        defer { try? FileManager.default.removeItem(at: file) }
-        let archive = """
-            {"filename":"Clipboard policy fixture","folders":[],"screens":[{
-            "version":6,"id":"\(id)","type":{"saved":{}},"name":"Clipboard Policy Fixture",
-            "hostname":"127.0.0.1","port":\(port),"clientProtocol":"vnc",
-            "users":[],"authenticationMethod":3,"operatingSystem":6,"startInObserveMode":false,
-            "onDisconnectAction":0,"useSharedClipboard":false,"useSecureConnection":false}]}
-            """
-        try Data(archive.utf8).write(to: file)
-        app.open(file)
-        let imported = app.alerts["导入完成"]
-        XCTAssertTrue(imported.waitForExistence(timeout: 10))
-        imported.buttons["完成"].tap()
+        let create = app.buttons["library.new"].firstMatch
+        let submit = app.buttons["connection.submit"].firstMatch
+        let form = app.collectionViews["connection.form"].firstMatch
+        let policy = form.buttons["connection.sharedClipboard"].firstMatch
+        func setPolicy(from previous: String, to choice: String) {
+            for _ in 0..<5 where !policy.isHittable { form.swipeUp() }
+            XCTAssertTrue(policy.isHittable, form.debugDescription)
+            XCTAssertTrue(policy.label.hasSuffix(previous), policy.debugDescription)
+            policy.tap()
+            app.buttons[choice].firstMatch.tap()
+            XCTAssertTrue(policy.label.hasSuffix(choice), policy.debugDescription)
+        }
 
-        let row = app.buttons["library.computer." + id].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 10))
+        create.tap()
+        let authentication = app.buttons["connection.authentication"].firstMatch
+        XCTAssertTrue(authentication.waitForExistence(timeout: 8))
+        authentication.tap()
+        app.buttons["无认证"].firstMatch.tap()
+        setPolicy(from: "跟随应用设置", to: "关闭")
+
+        let name = "Clipboard Policy Fixture"
+        let nameField = app.textFields["connection.name"].firstMatch
+        for _ in 0..<5 where !nameField.isHittable { form.swipeDown() }
+        XCTAssertTrue(nameField.isHittable)
+        nameField.tap()
+        nameField.typeText(name)
+        let hostField = app.textFields["connection.host"].firstMatch
+        hostField.tap()
+        hostField.typeText("127.0.0.1:\(port)")
+        submit.tap()
+        XCTAssertTrue(submit.waitForNonExistence(timeout: 8))
+
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                    "library.computer.", name)).firstMatch
         let clipboard = app.buttons["session.clipboard"].firstMatch
         func connect() async throws {
             let frames = desktop.frameCount
@@ -176,18 +193,11 @@ final class SessionUITests: XCTestCase {
 
         row.press(forDuration: 0.8)
         app.buttons["编辑连接"].firstMatch.tap()
-        let form = app.collectionViews["connection.form"].firstMatch
-        let policy = form.buttons["connection.sharedClipboard"].firstMatch
-        for _ in 0..<5 where !policy.isHittable { form.swipeUp() }
-        XCTAssertTrue(policy.isHittable, form.debugDescription)
-        XCTAssertTrue(policy.label.hasSuffix("关闭"), policy.debugDescription)
-        policy.tap()
-        app.buttons["开启"].firstMatch.tap()
-        XCTAssertTrue(policy.label.hasSuffix("开启"), policy.debugDescription)
+        setPolicy(from: "关闭", to: "开启")
         attachToolbarScreenshot(app, name: "Clipboard override enabled for one saved computer")
-        app.buttons["connection.submit"].firstMatch.tap()
+        submit.tap()
+        XCTAssertTrue(submit.waitForNonExistence(timeout: 8))
         XCTAssertTrue(row.waitForExistence(timeout: 8))
-        app.terminate()
         app.launch()
 
         try await connect()
