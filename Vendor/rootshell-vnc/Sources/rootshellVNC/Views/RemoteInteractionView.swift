@@ -2764,6 +2764,7 @@ final class RemoteInputUIView: UIView, UIKeyInput, UIGestureRecognizerDelegate,
     }
 
     @objc private func applicationWillResignActive() {
+        cancelScrollInteraction()
         releaseAllPressedKeys(reason: "app resigned active")
         releasePointerDrag()
         releaseTouchHoldDrag()
@@ -2776,9 +2777,10 @@ final class RemoteInputUIView: UIView, UIKeyInput, UIGestureRecognizerDelegate,
         #endif
     }
 
-    /// The scene goes inactive or to the background (Cmd+Tab, Mission Control, a closed window): no key-up will come.
+    /// An inactive or backgrounded scene may receive no final key or scroll event.
     @objc private func sceneDidDeactivate(_ notification: Notification) {
         guard let scene = notification.object as? UIScene, scene === window?.windowScene else { return }
+        cancelScrollInteraction()
         releaseAllPressedKeys(reason: "scene inactive or in background")
     }
 

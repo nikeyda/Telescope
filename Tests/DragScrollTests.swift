@@ -1,4 +1,5 @@
 import Network
+import RFBProtocol
 import UIKit
 import XCTest
 @testable import rootshellVNC
@@ -15,6 +16,52 @@ import XCTest
         let events = try await playGestures(apple: true)
         XCTAssertEqual(events, ["1 (20, 20)", "scroll (20, 20)", "1 (32, 26)",
                                 "scroll (32, 26)", "0 (32, 26)", "0 (105, 61)", "scroll (105, 61)"])
+    }
+
+    func testAppDeactivationCancelsTheDirectScrollAndAcceptsANewGesture() {
+        var events: [AppleScrollEvent] = []
+        let view = makeInputView(size: CGSize(width: 160, height: 96), touchHandler: TouchInputHandler(
+            sendPointerEvent: { _, _, _ in }, sendScrollEvent: { events.append($0) }))
+        let scroll = ScrollSample()
+        scroll.point = CGPoint(x: 50, y: 38)
+        scroll.deliver(.began, displacement: 15, to: view)
+        XCTAssertEqual(events.last?.scrollPhase, .began)
+
+        _ = view.perform(NSSelectorFromString("applicationWillResignActive"))
+        XCTAssertEqual(events.last?.scrollPhase, .cancelled)
+        let countAtDeactivation = events.count
+        scroll.deliver(.changed, displacement: 80, to: view)
+        XCTAssertEqual(events.count, countAtDeactivation, "Deltas from the retired scroll must stay local")
+
+        scroll.point = CGPoint(x: 100, y: 58)
+        scroll.deliver(.began, displacement: 18, to: view)
+        XCTAssertEqual(events.last?.scrollPhase, .began)
+        XCTAssertEqual(events.last?.x, 100)
+        XCTAssertEqual(events.last?.y, 58)
+        scroll.deliver(.cancelled, displacement: 18, to: view)
+    }
+
+    func testAppDeactivationEndsMomentumAndStopsProducingScrollEvents() async throws {
+        var events: [AppleScrollEvent] = []
+        let view = makeInputView(size: CGSize(width: 160, height: 96), touchHandler: TouchInputHandler(
+            sendPointerEvent: { _, _, _ in }, sendScrollEvent: { events.append($0) }))
+        let scroll = ScrollSample()
+        scroll.point = CGPoint(x: 80, y: 40)
+        defer {
+            // Ensure the display link also stops when an older app fails the assertion below.
+            scroll.deliver(.began, displacement: 0, to: view)
+            scroll.deliver(.cancelled, displacement: 0, to: view)
+        }
+        scroll.deliver(.began, displacement: 0, to: view)
+        scroll.deliver(.changed, displacement: 120, to: view)
+        scroll.deliver(.ended, displacement: 120, to: view)
+        XCTAssertEqual(events.last?.momentumPhase, .began)
+
+        _ = view.perform(NSSelectorFromString("applicationWillResignActive"))
+        XCTAssertEqual(events.last?.momentumPhase, .ended)
+        let countAtDeactivation = events.count
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(events.count, countAtDeactivation)
     }
 
     private func playGestures(apple: Bool) async throws -> [String] {
@@ -37,21 +84,10 @@ import XCTest
         var events: [String] = []
         peer.onWirePointer = { mask, point in events.append("\(mask) (\(Int(point.x)), \(Int(point.y)))") }
         peer.onWirePreciseScroll = { point in events.append("scroll (\(Int(point.x)), \(Int(point.y)))") }
-        let view = RemoteInputUIView(touchHandler: TouchInputHandler(sendPointerEvent: { mask, x, y in
-            session.sendPointerEvent(buttonMask: mask, x: x, y: y)
-        }, sendScrollEvent: session.sendScrollEvent, sendGestureEvent: session.sendGestureEvent),
-        keyboardHandler: KeyboardInputHandler(sendKeyEvent: { _, _ in }), keyboardCapture: VNCKeyboardCapture(),
-        requestPasswordSend: {}, requestDictation: {}, toggleFullScreen: nil, disconnect: {})
         let size = apple ? CGSize(width: 320, height: 192) : CGSize(width: 160, height: 96)
-        view.frame = CGRect(origin: .zero, size: size)
-        view.update(framebufferSize: size, viewport: RemoteViewportState(), viewportPanningMode: .edge,
-                    pointerMode: .direct, pointerSpeed: 1, cursorHeight: 20, serverRendersCursor: false,
-                    showsLocalCursorDot: false, touchGestures: .standard, keyboardActive: false,
-                    keyboardCaptured: false, inputViewsGeneration: 0, controlOptionAsCommand: false,
-                    localOptionKey: .off, swapsHardwareCommandAndControl: false, keyRepeat: .init(),
-                    framebufferOrigin: .zero, requestPasswordSend: {}, requestDictation: {},
-                    toggleFullScreen: nil, disconnect: {}, remoteCursor: nil, remoteCursorPresence: .undescribed,
-                    usesFallbackCursor: false)
+        let view = makeInputView(size: size, touchHandler: TouchInputHandler(sendPointerEvent: { mask, x, y in
+            session.sendPointerEvent(buttonMask: mask, x: x, y: y)
+        }, sendScrollEvent: session.sendScrollEvent, sendGestureEvent: session.sendGestureEvent))
 
         #if targetEnvironment(macCatalyst)
         let recognizers = try XCTUnwrap(view.gestureRecognizers)
@@ -103,6 +139,22 @@ import XCTest
         add(attachment)
         return events
     }
+
+    private func makeInputView(size: CGSize, touchHandler: TouchInputHandler) -> RemoteInputUIView {
+        let view = RemoteInputUIView(touchHandler: touchHandler, keyboardHandler: KeyboardInputHandler(sendKeyEvent: { _, _ in }),
+                                    keyboardCapture: VNCKeyboardCapture(), requestPasswordSend: {}, requestDictation: {},
+                                    toggleFullScreen: nil, disconnect: {})
+        view.frame = CGRect(origin: .zero, size: size)
+        view.update(framebufferSize: size, viewport: RemoteViewportState(), viewportPanningMode: .edge,
+                    pointerMode: .direct, pointerSpeed: 1, cursorHeight: 20, serverRendersCursor: false,
+                    showsLocalCursorDot: false, touchGestures: .standard, keyboardActive: false,
+                    keyboardCaptured: false, inputViewsGeneration: 0, controlOptionAsCommand: false,
+                    localOptionKey: .off, swapsHardwareCommandAndControl: false, keyRepeat: .init(),
+                    framebufferOrigin: .zero, requestPasswordSend: {}, requestDictation: {},
+                    toggleFullScreen: nil, disconnect: {}, remoteCursor: nil, remoteCursorPresence: .undescribed,
+                    usesFallbackCursor: false)
+        return view
+    }
 }
 
 private final class DragSample: UILongPressGestureRecognizer {
@@ -119,4 +171,10 @@ private final class ScrollSample: UIPanGestureRecognizer {
     override var state: State { get { sampleState } set { sampleState = newValue } }
     override func location(in view: UIView?) -> CGPoint { point }
     override func translation(in view: UIView?) -> CGPoint { displacement }
+
+    func deliver(_ state: State, displacement: CGFloat, to view: RemoteInputUIView) {
+        sampleState = state
+        self.displacement = CGPoint(x: 0, y: displacement)
+        _ = view.perform(NSSelectorFromString("handleNativeScrollState:"), with: self)
+    }
 }
