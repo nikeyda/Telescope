@@ -8,7 +8,7 @@ struct ApplicationPreferences: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("connection.reconnect") private var reconnect = true
     @AppStorage("connection.files") private var transfers = true
-    @AppStorage("connection.sharedClipboard") private var sharedClipboard = true
+    @AppStorage(SyncedPreference.sharedClipboard.rawValue) private var sharedClipboard = true
     @AppStorage("connection.clientCursor") private var clientCursor = true
     @AppStorage("pointer.speed") private var pointerSpeed = 1.0
     @AppStorage("keyboard.localOptionKey") private var localOptionKey = VNCLocalOptionKey.off

@@ -109,7 +109,15 @@ final class LibrarySyncTests: XCTestCase {
         let bookB = ConnectionLibrary(file: root.appending(path: "b/book.json"))
         try a.select(shared)
         try b.select(shared)
+        let clipboardKey = "connection.sharedClipboard"
+        var forcedOn = Computer(name: "Always share", endpoint: try Endpoint(address: "on.fixture.invalid"))
+        forcedOn.automaticallySharesClipboard = true
+        var forcedOff = Computer(name: "Manual clipboard", endpoint: try Endpoint(address: "off.fixture.invalid"))
+        forcedOff.automaticallySharesClipboard = false
+        XCTAssertTrue(bookA.save(forcedOn))
+        XCTAssertTrue(bookA.save(forcedOff))
         first.set("floating", forKey: "toolbar.style")
+        first.set(false, forKey: clipboardKey)
         first.set(true, forKey: "credentials.synchronize")
         first.set(false, forKey: "connection.files")
         await a.refresh(bookA)
@@ -119,6 +127,9 @@ final class LibrarySyncTests: XCTestCase {
         XCTAssertEqual(second.string(forKey: "toolbar.style"), "floating")
         XCTAssertNil(second.object(forKey: "credentials.synchronize"))
         XCTAssertNil(second.object(forKey: "connection.files"))
+        XCTAssertEqual(second.object(forKey: clipboardKey) as? Bool, false)
+        let syncedOn = try XCTUnwrap(bookB.archive.computers.first { $0.id == forcedOn.id })
+        XCTAssertTrue(syncedOn.sharesClipboard(defaultValue: second.bool(forKey: clipboardKey)))
         first.set("carousel", forKey: SyncedPreference.padToolbarStyle.rawValue)
         first.set("large", forKey: SyncedPreference.padToolbarSize.rawValue)
         first.set("tab,f5,spacer", forKey: SyncedPreference.padToolbarButtons.rawValue)
@@ -129,6 +140,7 @@ final class LibrarySyncTests: XCTestCase {
         second.set(true, forKey: SyncedPreference.phoneToolbarKeyboardTrailing.rawValue)
         second.set(1.75, forKey: "pointer.speed")
         second.set("trackpad", forKey: "pointer.mode")
+        second.set(true, forKey: clipboardKey)
         first.set(true, forKey: "library.listLayout")
         await a.refresh(bookA)
         await b.refresh(bookB)
@@ -136,6 +148,9 @@ final class LibrarySyncTests: XCTestCase {
         XCTAssertEqual(first.double(forKey: "pointer.speed"), 1.75)
         XCTAssertEqual(first.string(forKey: "pointer.mode"), "trackpad")
         XCTAssertEqual(second.bool(forKey: "library.listLayout"), true)
+        XCTAssertEqual(first.object(forKey: clipboardKey) as? Bool, true)
+        let syncedOff = try XCTUnwrap(bookB.archive.computers.first { $0.id == forcedOff.id })
+        XCTAssertFalse(syncedOff.sharesClipboard(defaultValue: first.bool(forKey: clipboardKey)))
         for defaults in [first, second] {
             let values = SyncedPreference.snapshot(defaults)
             XCTAssertEqual(values[SyncedPreference.padToolbarStyle.rawValue], .text("carousel"))

@@ -1204,7 +1204,7 @@ struct LibraryWindow: View {
                 Button("将已保存连接导出为 Screens 归档", systemImage: "doc.badge.arrow.up") {
                     do {
                         let knownMacs = library.archive.computers.filter { library.lastReport(for: $0.id)?.version == "RFB 3.889" }
-                        let shares = preferences.object(forKey: "connection.sharedClipboard") as? Bool ?? true
+                        let shares = preferences.object(forKey: SyncedPreference.sharedClipboard.rawValue) as? Bool ?? true
                         let bytes = try ScreensArchive.export(library.archive, knownMacs: Set(knownMacs.map(\.id)), sharedClipboard: shares,
                                                               preferences: preferences)
                         exportDocument = ArchiveDocument(data: bytes, exportType: ArchiveDocument.screensType)

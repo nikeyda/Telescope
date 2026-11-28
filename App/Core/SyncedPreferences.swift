@@ -16,6 +16,7 @@ enum SyncedPreference: String, CaseIterable {
     case recentOrder = "library.recentOrder"
     case linkOrder = "library.linkOrder"
     case reconnect = "connection.reconnect"
+    case sharedClipboard = "connection.sharedClipboard"
     case cursor = "connection.clientCursor"
     case speed = "pointer.speed"
     case pointerMode = "pointer.mode"
@@ -65,7 +66,7 @@ enum SyncedPreference: String, CaseIterable {
 
     func accepts(_ value: PreferenceValue) -> Bool {
         switch (self, value) {
-        case (.list, .flag), (.reconnect, .flag), (.cursor, .flag), (.keyboardTrailing, .flag),
+        case (.list, .flag), (.reconnect, .flag), (.sharedClipboard, .flag), (.cursor, .flag), (.keyboardTrailing, .flag),
              (.phoneToolbarKeyboardTrailing, .flag), (.padToolbarKeyboardTrailing, .flag),
              (.twoFingerToggle, .flag), (.keyRepeat, .flag):
             true
@@ -92,7 +93,7 @@ enum SyncedPreference: String, CaseIterable {
         guard defaults.object(forKey: rawValue) != nil else { return nil }
         let result: PreferenceValue?
         switch self {
-        case .list, .reconnect, .cursor, .keyboardTrailing, .phoneToolbarKeyboardTrailing, .padToolbarKeyboardTrailing,
+        case .list, .reconnect, .sharedClipboard, .cursor, .keyboardTrailing, .phoneToolbarKeyboardTrailing, .padToolbarKeyboardTrailing,
                 .twoFingerToggle, .keyRepeat: result = .flag(defaults.bool(forKey: rawValue))
         case .speed, .holdDuration, .keyDelay, .keyInterval: result = .speed(defaults.double(forKey: rawValue))
         case .up, .down, .horizontal: result = .number(defaults.integer(forKey: rawValue))
