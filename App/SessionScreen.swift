@@ -549,7 +549,7 @@ struct SessionScreen: View {
                     Button { toggleFullScreen() } label: {
                         Label("切换全屏幕", systemImage: fullscreen
                               ? ConnectionActionSymbol.exitFullScreen : ConnectionActionSymbol.fullScreen)
-                            .labelStyle(.iconOnly).labelStyle(.iconOnly)
+                            .labelStyle(.iconOnly)
                     }
                     Button { finish(edit: false) } label: {
                         Label("断开连接", systemImage: ConnectionActionSymbol.disconnect).labelStyle(.iconOnly)

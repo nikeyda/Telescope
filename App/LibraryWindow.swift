@@ -23,7 +23,6 @@ struct HiddenSidebarItems: OptionSet {
     static let links = Self(rawValue: 1 << 2)
     static let recent = Self(rawValue: 1 << 3)
     static let favorites = Self(rawValue: 1 << 4)
-    static let linkSection: Self = [.links, .recent, .favorites]
 }
 
 enum CollectionPage: Codable, Hashable {
