@@ -129,3 +129,7 @@
 "局域网内也使用 SSH" = "Use SSH on Local Networks";
 "确认目标在当前局域网时直接连接，其他网络仍使用 SSH。" = "Connect directly when the computer is confirmed to be on the local network. Other connections still use SSH.";
 "显示或隐藏键盘" = "Toggle Keyboard Visibility";
+"未检测到本机的 Tailscale 连接" = "Tailscale connection not detected";
+"请在这台设备上打开 Tailscale 并连接网络。" = "Open Tailscale on this device and connect to your network.";
+"设置 Tailscale" = "Set Up Tailscale";
+"忽略" = "Ignore";

@@ -2,6 +2,43 @@ import XCTest
 @testable import DeskLink
 
 final class TailnetTests: XCTestCase {
+    @MainActor func testLocalNetworkDetectionUsesTunnelAddressesWithoutHidingRemoteDevices() async throws {
+        let suite = "TelescopeTailnetNetwork." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = DirectoryFixture()
+        await service.changeListing(to: #"""
+        {"devices":[
+            {"id":"remote","hostname":"Studio","name":"studio.fixture","addresses":["100.67.42.2"],"os":"macOS"},
+            {"id":"mobile","hostname":"Tablet","name":"tablet.fixture","addresses":["100.68.42.3"],"os":"iOS"},
+            {"id":"revoked","hostname":"Revoked","name":"revoked.fixture","addresses":["100.69.42.4"],"os":"iOS","authorized":false}
+        ]}
+        """#)
+        let directory = TailnetDirectory(defaults: defaults, localAddresses: []) { try await service.reply(to: $0) }
+        directory.refreshLocalNetworkStatus(tunnelAddresses: ["fd7a:115c:a1e0::10"])
+        XCTAssertNil(directory.localNetworkDetected)
+        try await directory.link(TailnetAccount(tailnet: "fixture.example"), secret: "fixture-only", remember: false)
+        XCTAssertEqual(directory.visibleDevices.map(\.id), ["remote"])
+
+        for addresses: Set<String> in [[], ["100.70.42.5"], ["100.69.42.4"], ["fd7a:115c:a1e1::10"]] {
+            directory.refreshLocalNetworkStatus(tunnelAddresses: addresses)
+            XCTAssertEqual(directory.localNetworkDetected, false)
+        }
+        directory.refreshLocalNetworkStatus(tunnelAddresses: ["100.68.42.3"])
+        XCTAssertEqual(directory.localNetworkDetected, true)
+        directory.refreshLocalNetworkStatus(tunnelAddresses: ["FD7A:115C:A1E0:0:0:0:0:10%utun2"])
+        XCTAssertEqual(directory.localNetworkDetected, true)
+        directory.refreshLocalNetworkStatus(tunnelAddresses: [])
+        XCTAssertEqual(directory.localNetworkDetected, false)
+        XCTAssertEqual(directory.visibleDevices.map(\.id), ["remote"])
+        let requests = await service.methods
+        XCTAssertEqual(requests, ["POST", "GET"])
+
+        try directory.unlink()
+        directory.refreshLocalNetworkStatus(tunnelAddresses: ["100.68.42.3"])
+        XCTAssertNil(directory.localNetworkDetected)
+    }
+
     @MainActor func testArchivedGroupsResolveExactDeviceIDsAndPreserveCurrentAssignments() async throws {
         let suite = "TelescopeTailnetImport." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

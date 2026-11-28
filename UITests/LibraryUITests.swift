@@ -508,6 +508,28 @@ final class LibraryUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["未找到匹配的连接"].firstMatch.waitForExistence(timeout: 5))
     }
 
+    func testLinkedTailnetExplainsMissingLocalNetworkAndCanDismissTheNotice() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--test-library", UUID().uuidString, "-AppleLanguages", "(zh-Hans)"]
+        app.launchEnvironment["DESKLINK_TEST_TAILNET_LISTING"] = #"""
+        {"devices":[
+            {"id":"network-studio","hostname":"Fixture Studio","name":"studio.fixture.invalid","addresses":["100.71.7.19"],"os":"macOS"}
+        ]}
+        """#
+        app.launch()
+        selectCollection("library.tailscale", in: app)
+        let notice = app.descendants(matching: .any).matching(identifier: "tailnet.localNetworkNotice").firstMatch
+        let dismiss = app.buttons["tailnet.ignoreLocalNetworkNotice"].firstMatch
+        let card = app.buttons["tailnet.device.network-studio"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 8))
+        XCTAssertTrue(card.isHittable)
+        attachLibraryScreenshot(app, name: "Tailscale local network notice")
+        dismiss.tap()
+        XCTAssertTrue(notice.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(card.isHittable)
+    }
+
     func testQuickConnectOpensTailnetDeviceWithItsConfiguredPorts() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

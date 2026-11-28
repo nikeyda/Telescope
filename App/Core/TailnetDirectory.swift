@@ -241,6 +241,8 @@ final class TailnetDirectory {
     private var widgetCandidates = [DesktopTarget]()
     private(set) var account: TailnetAccount?
     private(set) var devices = [TailnetDevice]()
+    private(set) var localNetworkDetected: Bool?
+    @ObservationIgnored private var directoryAddresses = Set<NWEndpoint.Host>()
     private(set) var needsWidgetDirectoryRefresh = false
     private var hasLoadedDevices = false
     private(set) var loading = false
@@ -332,18 +334,18 @@ final class TailnetDirectory {
         attempt = generation
         loading = true
         defer { if attempt == generation { loading = false } }
-        let listing = try await requestDevices(new, secret: secret)
+        let listing = try await requestListing(new, secret: secret)
         try Task.checkCancellation()
         guard generation == attempt else { throw CancellationError() }
         if remember { try PasswordStore.write(secret, for: new.credentialKey(), kind: .tailnet) }
         if let previous = account, defaults.data(forKey: "tailnet.account") != nil, previous != new || !remember {
             try PasswordStore.write(nil, for: previous.credentialKey(), kind: .tailnet)
         }
-        try storeWidgetComputers(listing, account: new, remember: remember)
+        let desktops = desktopDevices(in: listing)
+        try storeWidgetComputers(desktops, account: new, remember: remember)
         account = new
         self.secret = secret
-        devices = listing
-        hasLoadedDevices = true
+        setLoadedDevices(from: listing, desktops: desktops)
         error = nil
     }
 
@@ -352,8 +354,7 @@ final class TailnetDirectory {
         guard let listing = try? JSONDecoder().decode(Listing.self, from: Data(json.utf8)),
               let testAccount = try? TailnetAccount(tailnet: "fixture.invalid") else { return }
         account = testAccount
-        devices = desktopDevices(in: listing)
-        hasLoadedDevices = true
+        setLoadedDevices(from: listing, desktops: desktopDevices(in: listing))
     }
     #endif
 
@@ -367,11 +368,11 @@ final class TailnetDirectory {
             guard let proof = try secret ?? PasswordStore.read(account.credentialKey(), kind: .tailnet) else {
                 throw URLError(.userAuthenticationRequired)
             }
-            let listing = try await requestDevices(account, secret: proof)
+            let listing = try await requestListing(account, secret: proof)
             if attempt == generation {
-                try storeWidgetComputers(listing, account: account, remember: defaults.data(forKey: "tailnet.account") != nil)
-                devices = listing
-                hasLoadedDevices = true
+                let desktops = desktopDevices(in: listing)
+                try storeWidgetComputers(desktops, account: account, remember: defaults.data(forKey: "tailnet.account") != nil)
+                setLoadedDevices(from: listing, desktops: desktops)
                 error = nil
             }
         } catch {
@@ -387,6 +388,8 @@ final class TailnetDirectory {
         account = nil
         secret = nil
         devices = []
+        localNetworkDetected = nil
+        directoryAddresses = []
         hasLoadedDevices = false
         widgetCandidates = []
         needsWidgetDirectoryRefresh = false
@@ -564,7 +567,7 @@ final class TailnetDirectory {
         needsWidgetDirectoryRefresh = false
     }
 
-    private func requestDevices(_ account: TailnetAccount, secret: String) async throws -> [TailnetDevice] {
+    private func requestListing(_ account: TailnetAccount, secret: String) async throws -> Listing {
         let authentication = try await data(for: account.tokenRequest(secret: secret))
         let token = try JSONDecoder().decode(Token.self, from: authentication)
         guard token.token_type.lowercased() == "bearer", !token.access_token.isEmpty else { throw URLError(.userAuthenticationRequired) }
@@ -572,7 +575,33 @@ final class TailnetDirectory {
         request.setValue("Bearer " + token.access_token, forHTTPHeaderField: "Authorization")
         let response = try await data(for: request)
         try Task.checkCancellation()
-        return desktopDevices(in: try JSONDecoder().decode(Listing.self, from: response))
+        return try JSONDecoder().decode(Listing.self, from: response)
+    }
+
+    private func setLoadedDevices(from listing: Listing, desktops: [TailnetDevice]) {
+        devices = desktops
+        hasLoadedDevices = true
+        // Keep mobile and local nodes available for detection even when they are not desktop targets.
+        directoryAddresses = Self.numericHosts(listing.devices.lazy.filter { $0.authorized != false }.flatMap(\.addresses))
+        refreshLocalNetworkStatus()
+    }
+
+    func refreshLocalNetworkStatus(tunnelAddresses: Set<String>? = nil) {
+        guard hasLoadedDevices else { return }
+        let detected = Self.numericHosts(tunnelAddresses ?? NearbyLocalIdentity.interfaceAddresses(tunnelsOnly: true))
+            .contains { host in
+                switch host {
+                case .ipv6(let address):
+                    return address.rawValue.starts(with: [0xfd, 0x7a, 0x11, 0x5c, 0xa1, 0xe0])
+                case .ipv4(let address):
+                    // Providers and other VPNs may also use the CGNAT range.
+                    return address.rawValue.first == 100 && (64...127).contains(address.rawValue[1])
+                        && directoryAddresses.contains(host)
+                default:
+                    return false
+                }
+            }
+        if localNetworkDetected != detected { localNetworkDetected = detected }
     }
 
     private func desktopDevices(in listing: Listing) -> [TailnetDevice] {

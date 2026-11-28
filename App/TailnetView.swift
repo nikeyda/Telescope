@@ -3,6 +3,7 @@ import UIKit
 
 struct TailnetView: View {
     @Bindable var directory: TailnetDirectory
+    @Environment(\.scenePhase) private var phase
     let archiveFolders: [ScreensDirectoryFolder]
     var query: LibrarySearchQuery
     var listLayout: Bool
@@ -18,6 +19,10 @@ struct TailnetView: View {
     @State private var deletingFolder: TailnetFolder?
     @State private var archiveImportAccount: TailnetAccount?
     @State private var archiveImportResult: TailnetFolderImportResult?
+    @State private var ignoredLocalNetworkNotice = false
+
+    private static let setupURL = URL(string: "https://tailscale.com/docs/install")!
+    private var observesLocalNetwork: Bool { directory.account != nil && phase == .active }
 
     var body: some View {
         Group {
@@ -30,7 +35,7 @@ struct TailnetView: View {
                     Button("关联设备目录") { editing = true }
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("tailnet.linkAccount")
-                    Link("设置 Tailscale", destination: URL(string: "https://tailscale.com/docs/install")!)
+                    Link("设置 Tailscale", destination: Self.setupURL)
                         .accessibilityIdentifier("tailnet.setup")
                 }
             } else {
@@ -76,8 +81,22 @@ struct TailnetView: View {
             }
         }
         .task { if directory.devices.isEmpty { await directory.refresh() } }
+        .task(id: observesLocalNetwork) {
+            guard observesLocalNetwork else { return }
+            while !Task.isCancelled {
+                directory.refreshLocalNetworkStatus()
+                do { try await Task.sleep(for: .seconds(3)) }
+                catch { return }
+            }
+        }
         .onChange(of: directory.selectedFolder?.id) { selectedDevice = nil }
-        .onChange(of: directory.account) { archiveImportResult = nil }
+        .onChange(of: directory.account) {
+            archiveImportResult = nil
+            ignoredLocalNetworkNotice = false
+        }
+        .onChange(of: directory.localNetworkDetected) { _, detected in
+            if detected == true { ignoredLocalNetworkNotice = false }
+        }
         .sheet(isPresented: $editing) { TailnetLogin(directory: directory) }
         .sheet(item: $portsEditor) { TailnetPortsEditor(request: $0, directory: directory) }
         .sheet(item: $folderEditor) { TailnetFolderEditor(request: $0, directory: directory) }
@@ -152,12 +171,34 @@ struct TailnetView: View {
             }
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("tailnet.refreshError")
+        } else if directory.localNetworkDetected == false, !ignoredLocalNetworkNotice {
+            localNetworkNotice
         }
         if let result = archiveImportResult {
             Text("新增文件夹 \(result.foldersAdded) 个，归组设备 \(result.devicesAssigned) 台，未应用分组 \(result.groupsSkipped) 个。")
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("tailnet.folder.importResult")
         }
+    }
+
+    private var localNetworkNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("未检测到本机的 Tailscale 连接", systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("tailnet.localNetworkNotice")
+            Text("请在这台设备上打开 Tailscale 并连接网络。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            HStack {
+                Link("设置 Tailscale", destination: Self.setupURL)
+                Button("忽略") { ignoredLocalNetworkNotice = true }
+                    .accessibilityIdentifier("tailnet.ignoreLocalNetworkNotice")
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
 
     @ViewBuilder private var emptyDirectory: some View {

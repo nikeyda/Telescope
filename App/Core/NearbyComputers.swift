@@ -151,7 +151,7 @@ enum NearbyLocalIdentity {
         return current.hasSuffix(".local") && host?.trimmingCharacters(in: dots).lowercased() == current
     }
 
-    static func interfaceAddresses() -> Set<String> {
+    static func interfaceAddresses(tunnelsOnly: Bool = false) -> Set<String> {
         var first: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&first) == 0, let first else { return [] }
         defer { freeifaddrs(first) }
@@ -159,6 +159,12 @@ enum NearbyLocalIdentity {
         var next: UnsafeMutablePointer<ifaddrs>? = first
         while let interface = next?.pointee {
             next = interface.ifa_next
+            if tunnelsOnly {
+                let required = UInt32(IFF_UP | IFF_RUNNING)
+                let name = String(cString: interface.ifa_name)
+                guard interface.ifa_flags & required == required,
+                      name.hasPrefix("utun") || name.hasPrefix("tun") else { continue }
+            }
             if let address = interface.ifa_addr, let host = numericHost(address) { addresses.insert(host) }
         }
         return addresses
