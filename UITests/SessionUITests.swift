@@ -1718,26 +1718,28 @@ final class SessionUITests: XCTestCase {
         let quick = app.buttons["library.quick"].firstMatch
         XCTAssertTrue(quick.waitForExistence(timeout: 10))
 
-        let id = UUID().uuidString
-        let file = FileManager.default.temporaryDirectory.appending(path: id + ".screens")
-        defer { try? FileManager.default.removeItem(at: file) }
-        let archive = """
-            {"filename":"Saved host link fixture","folders":[],"screens":[{
-            "version":6,"id":"\(id)","type":{"saved":{}},"name":"Saved render station",
-            "hostname":"127.0.0.1","port":\(port),"clientProtocol":"vnc",
-            "users":[],"authenticationMethod":3,"operatingSystem":6,"startInObserveMode":false,
-            "onDisconnectAction":0,"useSharedClipboard":false,"useSecureConnection":false}]}
-            """
-        try Data(archive.utf8).write(to: file)
-        app.open(file)
-        let imported = app.alerts["导入完成"]
-        XCTAssertTrue(imported.waitForExistence(timeout: 10))
-        imported.buttons["完成"].tap()
-        XCTAssertTrue(app.buttons["library.computer." + id].firstMatch.waitForExistence(timeout: 8))
+        let create = app.buttons["library.new"].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 8))
+        create.tap()
+        let authentication = app.buttons["connection.authentication"].firstMatch
+        XCTAssertTrue(authentication.waitForExistence(timeout: 8))
+        authentication.tap()
+        app.buttons["无认证"].firstMatch.tap()
+        let name = "Saved render station"
+        let nameField = app.textFields["connection.name"].firstMatch
+        nameField.tap()
+        nameField.typeText(name)
+        let hostField = app.textFields["connection.host"].firstMatch
+        hostField.tap()
+        hostField.typeText("127.0.0.1:\(port)")
+        app.buttons["connection.submit"].firstMatch.tap()
+        let saved = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                                                      "library.computer.", name)).firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 8))
 
         quick.tap()
         applyLink("screens://127.0.0.1?observe=1", in: app)
-        let form = app.navigationBars["Saved render station"]
+        let form = app.navigationBars[name]
         XCTAssertTrue(form.waitForExistence(timeout: 10))
         XCTAssertEqual(app.textFields["connection.host"].firstMatch.value as? String, "127.0.0.1")
         XCTAssertEqual(app.textFields["connection.port"].firstMatch.value as? String, String(port))
