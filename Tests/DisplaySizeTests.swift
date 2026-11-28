@@ -1,4 +1,6 @@
 import XCTest
+import Network
+import UIKit
 @testable import DeskLink
 @testable import rootshellVNC
 import RFBProtocol
@@ -439,5 +441,65 @@ import RFBProtocol
         computer.fixedDesktop = DesktopDimensions(width: 800, height: 600)
         let fixed = VNCSession(configuration: computer.configuration)
         XCTAssertEqual(fixed.matchingClientDisplaySize(viewSize: .zero, displayScale: 1)?.pointWidth, 800)
+    }
+
+    func testPendingDynamicResizeWaitsForExplicitResumeWithoutAnotherLayout() async throws {
+        try await withDynamicResizeDesktop { session, peer in
+            session.updateRemoteDisplaySize(viewSize: CGSize(width: 1024, height: 640), displayScale: 2)
+            session.suspendsRemoteDisplaySizeUpdates = true
+            try await Task.sleep(for: .milliseconds(260))
+            XCTAssertEqual(peer.requestedDesktopSizes, [])
+            session.suspendsRemoteDisplaySizeUpdates = false
+            try await waitForDisplayCondition { !peer.requestedDesktopSizes.isEmpty }
+            XCTAssertEqual(peer.requestedDesktopSizes, [CGSize(width: 2048, height: 1280)])
+        }
+    }
+
+    #if !targetEnvironment(macCatalyst)
+    func testDynamicResizeSendsOnlyTheSettledSizeAfterOwningSceneActivates() async throws {
+        try await withDynamicResizeDesktop { session, peer in
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            session.setHostScene(scene)
+            session.updateRemoteDisplaySize(viewSize: CGSize(width: 1024, height: 640), displayScale: 2)
+            NotificationCenter.default.post(name: UIScene.willDeactivateNotification, object: scene)
+            session.updateRemoteDisplaySize(viewSize: CGSize(width: 1152, height: 672), displayScale: 2)
+            try await Task.sleep(for: .milliseconds(260))
+            XCTAssertEqual(peer.requestedDesktopSizes, [])
+            NotificationCenter.default.post(name: UIScene.didActivateNotification, object: scene)
+            session.updateRemoteDisplaySize(viewSize: CGSize(width: 1280, height: 800), displayScale: 2)
+            try await waitForDisplayCondition { peer.requestedDesktopSizes.contains(CGSize(width: 2560, height: 1600)) }
+            XCTAssertEqual(peer.requestedDesktopSizes, [CGSize(width: 2560, height: 1600)])
+        }
+    }
+    #endif
+
+    private func withDynamicResizeDesktop(
+        _ check: (VNCSession, LocalTestDisplay) async throws -> Void
+    ) async throws {
+        let peer = LocalTestDisplay()
+        peer.announcesDynamicSize = true
+        let port: UInt16
+        do { port = try await peer.start() }
+        catch let error as NWError where error == .posix(.EPERM) || error == .posix(.EACCES) {
+            throw XCTSkip("The loopback desktop requires inbound networking in the test host")
+        }
+        defer { peer.stop() }
+        let session = VNCSession(configuration: .init(enableHighPerformanceMode: false,
+                                                       videoQualityMode: .standard, displaySizingMode: .matchClient))
+        defer { session.disconnect() }
+        try await session.connect(credentials: .init(host: "127.0.0.1", port: port, password: ""))
+        try await waitForDisplayCondition { session.hasPresentedCurrentPicture || peer.failure != nil }
+        XCTAssertTrue(session.hasPresentedCurrentPicture, peer.failure ?? "The test desktop did not present a frame")
+        XCTAssertTrue(peer.advertisedEncodings.contains(Encoding.extendedDesktopSize.rawValue))
+        try await check(session, peer)
+        XCTAssertNil(peer.failure)
+    }
+
+    private func waitForDisplayCondition(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(4)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(condition(), "Timed out waiting for the test desktop")
     }
 }

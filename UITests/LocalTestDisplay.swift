@@ -27,6 +27,8 @@ final class LocalTestDisplay {
     private(set) var advertisedEncodings: [Int32] = []
     private(set) var halfResolutionRequested = false
     private(set) var requestedFramebufferSize: CGSize?
+    var announcesDynamicSize = false
+    private(set) var requestedDesktopSizes: [CGSize] = []
     private(set) var frameCount = 0
     private(set) var acceptedConnections = 0
     var connectionsToCloseBeforeHandshake = 0
@@ -181,6 +183,12 @@ final class LocalTestDisplay {
                 advertisedEncodings = stride(from: 0, to: list.count, by: 4).map { offset in
                     Int32(bitPattern: list[offset..<offset + 4].reduce(UInt32.zero) { $0 << 8 | UInt32($1) })
                 }
+                if announcesDynamicSize, advertisedEncodings.contains(-308) {
+                    // ExtendedDesktopSize for the single 160 × 96 test display.
+                    try await send([0, 0, 0, 1, 0, 0, 0, 0, 0, 160, 0, 96, 255, 255, 254, 204,
+                                    1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 160, 0, 96, 0, 0, 0, 0],
+                                   to: connection)
+                }
             case 3:
                 let request = try await read(9, from: connection)
                 if request[0] == 0 {
@@ -252,6 +260,13 @@ final class LocalTestDisplay {
                     let y = Int(event[52]) * 256 + Int(event[53])
                     onWirePreciseScroll?(CGPoint(x: x, y: y))
                 }
+            case 251 where announcesDynamicSize:
+                let header = try await read(7, from: connection)
+                guard header[5] == 1 else { throw URLError(.badServerResponse) }
+                _ = try await read(16, from: connection)
+                let width = Int(header[1]) * 256 + Int(header[2])
+                let height = Int(header[3]) * 256 + Int(header[4])
+                requestedDesktopSizes.append(CGSize(width: width, height: height))
             default: throw UnexpectedMessage(type: type)
             }
         }

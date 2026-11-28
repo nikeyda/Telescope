@@ -2359,27 +2359,38 @@ public final class VNCSession {
 
         // ConnectionView supplies the viewport before connecting; the remote
         // desktop view keeps it current for window changes and device rotation.
+        let alreadyScheduled = remoteDisplayResizeTask != nil && preparedClientDisplaySize == requested
         preparedClientDisplaySize = requested
 
         guard connectionState.isConnected,
               let transport = transportSession,
-              requested != lastRequestedClientDisplaySize else { return }
-
-        if isHighPerformanceMode {
-            restartAppleLoginVisionForDisplayTransition(
-                reason: "Match Client target changed")
-        }
-        lastRequestedClientDisplaySize = requested
+              !alreadyScheduled else { return }
         remoteDisplayResizeTask?.cancel()
+        remoteDisplayResizeTask = nil
+        guard requested != lastRequestedClientDisplaySize else { return }
+
         remoteDisplayResizeTask = Task { [weak self, weak transport] in
             do {
                 try await Task.sleep(for: .milliseconds(120))
                 try Task.checkCancellation()
                 guard let self,
                       let transport,
-                      self.transportSession === transport,
-                      self.connectionState.isConnected,
+                      self.transportSession === transport else { return }
+                self.remoteDisplayResizeTask = nil
+                guard self.connectionState.isConnected,
                       self.configuration.displaySizingMode == .matchClient else { return }
+                if self.displaySizeUpdatesSuspended {
+                    // Layout reports made during suspension take precedence over this older request.
+                    if self.deferredDisplaySizeUpdate == nil {
+                        self.deferredDisplaySizeUpdate = (viewSize, displayScale)
+                    }
+                    return
+                }
+                if self.isHighPerformanceMode {
+                    self.restartAppleLoginVisionForDisplayTransition(
+                        reason: "Match Client target changed")
+                }
+                self.lastRequestedClientDisplaySize = requested
                 let disposition = try await transport.requestRemoteDisplaySize(
                     pixelWidth: requested.pixelWidth,
                     pixelHeight: requested.pixelHeight,
@@ -2391,7 +2402,7 @@ public final class VNCSession {
             } catch is CancellationError {
                 return
             } catch {
-                guard let self else { return }
+                guard let self, let transport, self.transportSession === transport else { return }
                 if self.lastRequestedClientDisplaySize == requested {
                     self.lastRequestedClientDisplaySize = nil
                 }
