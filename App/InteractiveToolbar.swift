@@ -135,7 +135,7 @@ enum DeskToolbarButton: String, CaseIterable {
         case .password: "key"
         case .spacer: "arrow.left.and.right"
         case .dictation: "mic"
-        case .screenshot: "camera"
+        case .screenshot: ConnectionActionSymbol.screenshot
         case .enter: "return"
         case .up: "arrow.up"
         case .down: "arrow.down"
@@ -424,10 +424,10 @@ struct InteractiveDesktop<SessionHeader: View>: View {
                     .accessibilityIdentifier("toolbar.expand")
                     .contextMenu {
                         if !bar.expanded {
-                            Button("显示键盘") { bar.keyboard.softwareKeyboardRequested = true }
-                            Menu("远程快捷命令") { remoteCommands }
-                            Button("文件传输") { controls.toggleFileTransfers() }
-                            Button("断开连接", role: .destructive) { session.requestUserDisconnect() }
+                            Button("显示键盘", systemImage: "keyboard") { bar.keyboard.softwareKeyboardRequested = true }
+                            Menu("远程快捷命令", systemImage: DeskToolbarButton.shortcuts.symbol) { remoteCommands }
+                            fileTransferAction
+                            disconnectAction
                         }
                     }
                 }
@@ -868,14 +868,26 @@ struct InteractiveDesktop<SessionHeader: View>: View {
             }
             remoteCommands
             Divider()
-            Button("文件传输") { controls.toggleFileTransfers() }
-            Button("切换全屏幕", action: toggleFullScreen)
-            Button("断开连接", role: .destructive) { session.requestUserDisconnect() }
+            fileTransferAction
+            Button("切换全屏幕", systemImage: ConnectionActionSymbol.fullScreen, action: toggleFullScreen)
+            disconnectAction
         } label: {
-            icon("ellipsis", using: .small, keyFrame: CGSize(width: 44, height: height))
+            icon("ellipsis.circle", using: .small, keyFrame: CGSize(width: 44, height: height))
         }
-        .accessibilityLabel("远程快捷命令")
+        .accessibilityLabel("会话操作")
         .accessibilityIdentifier("session.splitCommands")
+    }
+
+    private var fileTransferAction: some View {
+        Button("文件传输", systemImage: ConnectionActionSymbol.transfers) { controls.toggleFileTransfers() }
+    }
+
+    private var disconnectAction: some View {
+        Button(role: .destructive) {
+            session.requestUserDisconnect()
+        } label: {
+            Label("断开连接", systemImage: ConnectionActionSymbol.disconnect)
+        }
     }
 
     private var laptopTrackpad: some View {

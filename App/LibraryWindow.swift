@@ -625,47 +625,47 @@ struct LibraryWindow: View {
 
     private var librarySidebar: some View {
         List(selection: $page) {
-            #if targetEnvironment(macCatalyst)
-            if !hiddenItems.isSuperset(of: [.nearby, .tailscale]) {
-                Section("发现设备") {
+            if !hiddenItems.isSuperset(of: [.nearby, .recent, .favorites]) {
+                Section {
                     nearbySidebarRow
-                    tailscaleSidebarRow
-                }
-            }
-            #else
-            nearbySidebarRow
-            tailscaleSidebarRow
-            #endif
-            if !hiddenItems.isSuperset(of: .linkSection) {
-                Section("链接") {
-                    if !hiddenItems.contains(.links) {
-                        folderDropTarget(Label("所有链接", systemImage: "link"), folder: nil, scope: .links)
-                            .tag(CollectionPage.links)
-                            .accessibilityIdentifier("library.links")
-                    }
                     if !hiddenItems.contains(.recent) {
-                        Label("最近连接", systemImage: "clock").tag(CollectionPage.recent)
+                        Label("最近连接", systemImage: "clock")
+                            .tag(CollectionPage.recent)
+                            .accessibilityIdentifier("library.recent")
                     }
                     if !hiddenItems.contains(.favorites) {
-                        Label("收藏", systemImage: "star").tag(CollectionPage.favorites)
+                        Label("收藏", systemImage: "star")
+                            .tag(CollectionPage.favorites)
                             .accessibilityIdentifier("library.favorites")
                     }
-                    if !hiddenItems.contains(.links) { folderRows(in: .links) }
                 }
             }
+            if !hiddenItems.contains(.links) {
+                Section("链接") {
+                    folderDropTarget(Label("所有链接", systemImage: "link"), folder: nil, scope: .links)
+                        .tag(CollectionPage.links)
+                        .accessibilityIdentifier("library.links")
+                    folderRows(in: .links)
+                }
+            }
+            #if targetEnvironment(macCatalyst)
+            Section("网络") {
+                Label("异网接入", systemImage: "network")
+                    .tag(CollectionPage.remoteAccess)
+                    .accessibilityIdentifier("library.remoteAccess")
+                tailscaleSidebarRow
+            }
+            #else
+            if !hiddenItems.contains(.tailscale) {
+                Section("网络") { tailscaleSidebarRow }
+            }
+            #endif
             Section("自定义连接") {
-                folderDropTarget(Label("所有连接", systemImage: "rectangle.on.rectangle"), folder: nil, scope: .custom)
+                folderDropTarget(Label("所有连接", systemImage: "desktopcomputer"), folder: nil, scope: .custom)
                     .tag(CollectionPage.all)
                     .accessibilityIdentifier("library.all")
                 folderRows(in: .custom)
             }
-            #if targetEnvironment(macCatalyst)
-            Section("共享本机") {
-                Label("异网接入", systemImage: "antenna.radiowaves.left.and.right")
-                    .tag(CollectionPage.remoteAccess)
-                    .accessibilityIdentifier("library.remoteAccess")
-            }
-            #endif
         }
         #if !targetEnvironment(macCatalyst)
         .navigationTitle(AppName.display)
@@ -675,7 +675,7 @@ struct LibraryWindow: View {
 
     @ViewBuilder private var nearbySidebarRow: some View {
         if !hiddenItems.contains(.nearby) {
-            Label("附近", systemImage: "bonjour")
+            Label("附近", systemImage: "dot.radiowaves.left.and.right")
                 .badge(nearbyCount)
                 .accessibilityValue(nearbyCount == 0 ? "" : nearbyCount.formatted())
                 .accessibilityIdentifier("library.nearby")
@@ -1174,7 +1174,7 @@ struct LibraryWindow: View {
             #endif
             Button { newEntry() } label: { Label("新建连接", systemImage: "plus") }
                 .accessibilityIdentifier("library.new")
-            Button { downloads = true } label: { Label("文件传输", systemImage: "arrow.up.arrow.down") }
+            Button { downloads = true } label: { Label("文件传输", systemImage: ConnectionActionSymbol.transfers) }
                 .accessibilityIdentifier("library.transfers")
             Menu {
                 if supportsLibraryOrganization {
@@ -1197,12 +1197,12 @@ struct LibraryWindow: View {
                 }
                 #endif
                 Divider()
-                Button("导入") { importFile = true }
-                Button("导出") {
+                Button("导入", systemImage: "square.and.arrow.down") { importFile = true }
+                Button("导出", systemImage: "square.and.arrow.up") {
                     do { exportDocument = try ArchiveDocument(data: library.archive.encoded()); exportFile = true }
                     catch { ownError = error.localizedDescription }
                 }
-                Button("将已保存连接导出为 Screens 归档") {
+                Button("将已保存连接导出为 Screens 归档", systemImage: "doc.badge.arrow.up") {
                     do {
                         let knownMacs = library.archive.computers.filter { library.lastReport(for: $0.id)?.version == "RFB 3.889" }
                         let shares = preferences.object(forKey: "connection.sharedClipboard") as? Bool ?? true
@@ -1213,7 +1213,7 @@ struct LibraryWindow: View {
                     } catch { ownError = error.localizedDescription }
                 }
                 Divider()
-                Button("设置") { settings = true }
+                Button("设置", systemImage: "gearshape") { settings = true }
             } label: { Label("更多", systemImage: "ellipsis.circle") }
             .accessibilityIdentifier("library.more")
         }
@@ -1237,7 +1237,7 @@ struct LibraryWindow: View {
     #endif
 
     private var librarySortMenu: some View {
-        Menu("排序") {
+        Menu("排序", systemImage: "arrow.up.arrow.down") {
             Picker("排序", selection: order) {
                 ForEach(ComputerOrder.allCases.filter { page != .recent || $0 != .manual }, id: \.self) { option in
                     Text(option.title).tag(option)

@@ -3,6 +3,17 @@ import SwiftUI
 import UIKit
 import rootshellVNC
 
+enum ConnectionActionSymbol {
+    static let transfers = "arrow.up.arrow.down.circle"
+    static let clipboard = "doc.on.clipboard"
+    static let sendClipboard = "arrow.up.doc"
+    static let receiveClipboard = "arrow.down.doc"
+    static let screenshot = "camera.viewfinder"
+    static let fullScreen = "arrow.up.left.and.arrow.down.right"
+    static let exitFullScreen = "arrow.down.right.and.arrow.up.left"
+    static let disconnect = "xmark.circle"
+}
+
 @MainActor @Observable
 final class SessionPointerControl {
     var mode: RemotePointerMode
@@ -489,7 +500,7 @@ struct SessionScreen: View {
                                 isSplit: monitorGroup != nil).labelStyle(.iconOnly)
                     if !observing, session.isReadyForDesktopInput, session.canSendLoginPassword {
                         PasswordTypingButton(controls: controls) {
-                            Label("输入用户密码", systemImage: "key.fill").labelStyle(.iconOnly)
+                            Label("输入用户密码", systemImage: "key").labelStyle(.iconOnly)
                         }
                         .accessibilityIdentifier("session.password")
                     }
@@ -514,29 +525,34 @@ struct SessionScreen: View {
                     }
                     #endif
                     Button(action: captureScreenshot) {
-                        Label("保存屏幕快照", systemImage: "camera").labelStyle(.iconOnly)
+                        Label("保存屏幕快照", systemImage: ConnectionActionSymbol.screenshot).labelStyle(.iconOnly)
                     }.accessibilityIdentifier("session.screenshot")
                     #if !targetEnvironment(macCatalyst)
                     .keyboardShortcut("r", modifiers: [.shift, .control, .command])
                     #endif
                     if !observing, let clipboard {
                         Menu {
-                            if let sharing = clipboardSharing {
-                                Toggle("自动共享剪贴板", isOn: sharing).accessibilityIdentifier("session.sharedClipboard")
-                                Divider()
-                            }
-                            Button("发送剪贴板") { clipboard.sendClipboard() }
-                                .disabled(!clipboard.canSendClipboard)
-                            Button("接收剪贴板") { clipboard.getClipboard() }
+                            Button("接收剪贴板", systemImage: ConnectionActionSymbol.receiveClipboard) { clipboard.getClipboard() }
                                 .disabled(!clipboard.canGetClipboard)
-                        } label: { Label("共享剪贴板", systemImage: "list.clipboard").labelStyle(.iconOnly) }
+                            Button("发送剪贴板", systemImage: ConnectionActionSymbol.sendClipboard) { clipboard.sendClipboard() }
+                                .disabled(!clipboard.canSendClipboard)
+                            if let sharing = clipboardSharing {
+                                Divider()
+                                Toggle(isOn: sharing) {
+                                    Label("自动共享剪贴板", systemImage: "arrow.triangle.2.circlepath")
+                                }
+                                .accessibilityIdentifier("session.sharedClipboard")
+                            }
+                        } label: { Label("共享剪贴板", systemImage: ConnectionActionSymbol.clipboard).labelStyle(.iconOnly) }
                         .accessibilityIdentifier("session.clipboard")
                     }
                     Button { toggleFullScreen() } label: {
-                        Label("切换全屏幕", systemImage: "arrow.up.left.and.arrow.down.right").labelStyle(.iconOnly)
+                        Label("切换全屏幕", systemImage: fullscreen
+                              ? ConnectionActionSymbol.exitFullScreen : ConnectionActionSymbol.fullScreen)
+                            .labelStyle(.iconOnly).labelStyle(.iconOnly)
                     }
                     Button { finish(edit: false) } label: {
-                        Label("断开连接", systemImage: "xmark.circle").labelStyle(.iconOnly)
+                        Label("断开连接", systemImage: ConnectionActionSymbol.disconnect).labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("session.close")
                     #if !targetEnvironment(macCatalyst)
