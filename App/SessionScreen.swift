@@ -368,8 +368,8 @@ struct SessionScreen: View {
                     }
                     catch { library.errorMessage = error.localizedDescription }
                 }
-                if !observing { attachClipboard() }
             }
+            if state.isConnected, !observing { attachClipboard() }
             recordVideoFallback()
         }
         .onChange(of: session.highPerformanceFallbackReason) { _, _ in recordVideoFallback() }
@@ -821,7 +821,7 @@ struct SessionScreen: View {
     }
 
     private func attachClipboard() {
-        guard !privacy.locked, !closing, !stopped else { return }
+        guard clipboard == nil, !privacy.locked, !closing, !stopped else { return }
         let controller = VNCClipboardSynchronizer(session: session, pasteboard: pasteboard)
         let computer = request.computer.displayName
         let preferences = preferences

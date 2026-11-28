@@ -31,6 +31,7 @@ final class LocalTestDisplay {
     private(set) var acceptedConnections = 0
     var connectionsToCloseBeforeHandshake = 0
     var waitsForCancellationBeforeHandshake = false
+    var withholdHandshakesAfterConnection: Int?
     var withholdFramesAfterConnection: Int?
     private(set) var overlappingConnections = 0
     private(set) var closedConnections = 0
@@ -140,6 +141,9 @@ final class LocalTestDisplay {
     }
 
     private func serve(_ connection: NWConnection, connectionNumber: Int) async throws {
+        while let lastAllowed = withholdHandshakesAfterConnection, connectionNumber > lastAllowed {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         let version = Array((appleScalingCapability == nil ? "RFB 003.008\n" : "RFB 003.889\n").utf8)
         if waitsForCancellationBeforeHandshake {
             _ = try await read(1, from: connection)

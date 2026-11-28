@@ -887,6 +887,47 @@ final class SessionUITests: XCTestCase {
     }
 
     #if !targetEnvironment(macCatalyst)
+    func testClipboardReturnsWhenAuthenticationFinishesBeforeTheReconnection() async throws {
+        continueAfterFailure = false
+        let desktop = LocalTestDisplay()
+        desktop.expectsClientDisconnect = true
+        let port = try await desktop.start()
+        defer { desktop.stop() }
+
+        let app = XCUIApplication()
+        openProtectedChart(app, port: port)
+        let authenticate = app.buttons["身份验证"].firstMatch
+        let clipboard = app.buttons["session.clipboard"].firstMatch
+        try await waitUntil { desktop.frameCount > 0 && clipboard.exists }
+
+        desktop.withholdHandshakesAfterConnection = 1
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        desktop.dropCurrentConnection()
+        try await waitUntil { desktop.closedConnections == 1 }
+        app.activate()
+        XCTAssertTrue(authenticate.waitForExistence(timeout: 8))
+        try await waitUntil { desktop.acceptedConnections == 2 }
+        let frameCount = desktop.frameCount
+        XCTAssertFalse(clipboard.exists, "The privacy gate must remove clipboard controls")
+        tapCoveredAuthentication(in: app)
+        XCTAssertTrue(authenticate.waitForNonExistence(timeout: 6))
+        XCTAssertEqual(desktop.frameCount, frameCount, "The replacement handshake is still held during unlock")
+
+        desktop.withholdHandshakesAfterConnection = nil
+        try await waitUntil { desktop.frameCount > frameCount }
+        XCTAssertTrue(clipboard.waitForExistence(timeout: 6), "The connected desktop did not restore clipboard controls")
+        let text = "Clipboard after reconnect"
+        let writesBeforeSend = desktop.clipboardWrites
+        try await desktop.publishClipboard(text)
+        clipboard.tap()
+        let send = app.buttons["发送剪贴板"].firstMatch
+        XCTAssertTrue(send.wait(for: \.isEnabled, toEqual: true, timeout: 6))
+        send.tap()
+        try await waitUntil { desktop.clipboardWrites > writesBeforeSend && desktop.receivedClipboard == Data(text.utf8) }
+        XCTAssertEqual(desktop.acceptedConnections, 2)
+    }
+
     func testPinyinCandidateSendsOnlyCommittedCharactersToTheRemoteDesktop() async throws {
         guard ProcessInfo.processInfo.environment["DESKLINK_TEST_PINYIN"] == "1" else {
             throw XCTSkip("Requires an active Simplified Chinese Pinyin onscreen keyboard.")
