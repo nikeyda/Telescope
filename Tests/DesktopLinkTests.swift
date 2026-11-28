@@ -62,6 +62,53 @@ final class DesktopLinkTests: XCTestCase {
         XCTAssertThrowsError(try EditorRequest.from(guest, in: archive, allowUnsavedHost: true))
     }
 
+    func testSavedHostnameLinksKeepTheConfiguredPortAndRoute() throws {
+        let endpoints = ["render.local:5915", "192.0.2.10:5915", "[2001:db8::5]:5915", "rendershort:5915"]
+        for address in endpoints {
+            let endpoint = try Endpoint(address: address)
+            let authority = endpoint.host.contains(":") ? "[\(endpoint.host)]" : endpoint.host
+            var saved = Computer(name: "Render station", endpoint: endpoint)
+            saved.ssh = SSHSettings(port: 2250, username: "jump", server: "relay.invalid")
+            var recent = Computer(endpoint: try Endpoint(address: authority))
+            recent.saved = false
+            let archive = LibraryArchive(computers: [recent, saved])
+            let link = try DesktopLink(text: "screens://\(authority)?observe=1")
+            let request = try EditorRequest.from(link, in: archive, allowUnsavedHost: false)
+            XCTAssertEqual(request.computer?.id, saved.id)
+            XCTAssertEqual(request.computer?.endpoint, endpoint)
+            XCTAssertEqual(request.computer?.ssh, saved.ssh)
+            XCTAssertEqual(request.link?.observe, true)
+        }
+    }
+
+    func testSavedHostRequiresAUniqueProfileAndHonorsAnExplicitPort() throws {
+        let host = "studio.local"
+        var editor = Computer(name: "Editor", endpoint: try Endpoint(address: host + ":5915"))
+        editor.username = "editor"
+        var reader = Computer(name: "Reader", endpoint: try Endpoint(address: host))
+        reader.username = "reader"
+        let decoy = Computer(name: host, endpoint: try Endpoint(address: "other.invalid"))
+        let portDecoy = Computer(name: host + ":5915", endpoint: decoy.endpoint)
+        let alias = Computer(name: "Backup.Mac", endpoint: try Endpoint(address: "backup.invalid"))
+        let archive = LibraryArchive(computers: [decoy, portDecoy, editor, reader, alias])
+        let ambiguous = try DesktopLink(text: "screens://\(host)")
+        XCTAssertThrowsError(try EditorRequest.from(ambiguous, in: archive, allowUnsavedHost: false)) { error in
+            guard case .ambiguousName? = error as? EditorRequest.LinkError else { return XCTFail("Expected an ambiguous host") }
+        }
+        for (url, id) in [("screens://editor@\(host)", editor.id), ("screens://\(host):5900", reader.id),
+                          ("screens://\(host):5915", editor.id), ("screens://Editor", editor.id),
+                          ("screens://Backup.Mac", alias.id)] {
+            let request = try EditorRequest.from(DesktopLink(text: url), in: archive, allowUnsavedHost: false)
+            XCTAssertEqual(request.computer?.id, id)
+        }
+        let onlyEditor = LibraryArchive(computers: [editor])
+        let explicit = try DesktopLink(text: "screens://\(host):5900")
+        XCTAssertThrowsError(try EditorRequest.from(explicit, in: onlyEditor, allowUnsavedHost: false))
+        let unsaved = try EditorRequest.from(explicit, in: onlyEditor, allowUnsavedHost: true)
+        XCTAssertNil(unsaved.computer)
+        XCTAssertEqual(unsaved.initialAddress, host)
+    }
+
     func testMalformedLinksCannotBecomeAnOrdinaryConnection() {
         for invalid in ["ssh://host:0", "ssh://host:65536", "vnc://a@b@host", "vnc://host/path",
                         "vnc://host?Observe=true", "vnc://host?observe=yes", "vnc://host?guest=true&guest=false",

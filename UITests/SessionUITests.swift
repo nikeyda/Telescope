@@ -1706,6 +1706,50 @@ final class SessionUITests: XCTestCase {
         app.buttons["session.close"].tap()
     }
 
+    func testSavedHostLinkUsesItsNonDefaultPortFromQuickConnect() async throws {
+        continueAfterFailure = false
+        let desktop = LocalTestDisplay()
+        let port = try await desktop.start()
+        defer { desktop.stop() }
+        XCTAssertNotEqual(port, 5900)
+        let app = XCUIApplication()
+        app.launchArguments = ["--test-library", UUID().uuidString, "-AppleLanguages", "(zh-Hans)"]
+        app.launch()
+        let quick = app.buttons["library.quick"].firstMatch
+        XCTAssertTrue(quick.waitForExistence(timeout: 10))
+
+        let id = UUID().uuidString
+        let file = FileManager.default.temporaryDirectory.appending(path: id + ".screens")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let archive = """
+            {"filename":"Saved host link fixture","folders":[],"screens":[{
+            "version":6,"id":"\(id)","type":{"saved":{}},"name":"Saved render station",
+            "hostname":"127.0.0.1","port":\(port),"clientProtocol":"vnc",
+            "users":[],"authenticationMethod":3,"operatingSystem":6,"startInObserveMode":false,
+            "onDisconnectAction":0,"useSharedClipboard":false,"useSecureConnection":false}]}
+            """
+        try Data(archive.utf8).write(to: file)
+        app.open(file)
+        let imported = app.alerts["导入完成"]
+        XCTAssertTrue(imported.waitForExistence(timeout: 10))
+        imported.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["library.computer." + id].firstMatch.waitForExistence(timeout: 8))
+
+        quick.tap()
+        applyLink("screens://127.0.0.1?observe=1", in: app)
+        let form = app.navigationBars["Saved render station"]
+        XCTAssertTrue(form.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.textFields["connection.host"].firstMatch.value as? String, "127.0.0.1")
+        XCTAssertEqual(app.textFields["connection.port"].firstMatch.value as? String, String(port))
+        XCTAssertEqual(desktop.acceptedConnections, 0)
+
+        app.buttons["connection.submit"].firstMatch.tap()
+        try await waitUntil { desktop.frameCount > 0 && app.buttons["session.mode"].firstMatch.label == "仅观察" }
+        XCTAssertEqual(desktop.acceptedConnections, 1)
+        app.buttons["session.close"].firstMatch.tap()
+        XCTAssertTrue(quick.waitForExistence(timeout: 8))
+    }
+
     func testChangingTheTargetClearsOnlyThePasswordFromTheLink() async throws {
         let app = XCUIApplication()
         app.launchArguments = ["--test-library", UUID().uuidString]

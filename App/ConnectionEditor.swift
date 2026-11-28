@@ -68,8 +68,9 @@ struct EditorRequest: Identifiable {
 
     static func from(_ link: DesktopLink, in archive: LibraryArchive, allowUnsavedHost: Bool) throws -> Self {
         if link.requestsGuest { throw LinkError.guestUnavailable }
-        let name: String?
+        let saved = archive.computers.filter(\.saved)
         let endpoint: Endpoint?
+        var matches: [Computer]
         switch link.target {
         case .address(let address):
             // The Mac handles vnc:// and screens:// as saved-computer links.
@@ -79,17 +80,23 @@ struct EditorRequest: Identifiable {
             }
             // A literal IP, qualified hostname, or host with a port must keep
             // its destination even if another record has that display name.
-            name = nil
             endpoint = address
+            matches = saved.filter { $0.endpoint == address }
         case .savedName(let displayName):
-            name = displayName
             endpoint = try? Endpoint(address: displayName)
+            matches = saved.filter { $0.displayName.caseInsensitiveCompare(displayName) == .orderedSame }
+            if let endpoint {
+                if (try? Endpoint.hostOnly(displayName)) == nil {
+                    // An explicit port selects the exact endpoint, including an explicit 5900.
+                    matches = saved.filter { $0.endpoint == endpoint }
+                } else if matches.isEmpty || endpoint.host.contains(".") || endpoint.host.contains(":") {
+                    // A host-only link selects a saved connection and inherits its port.
+                    // A qualified host takes precedence over a display name spelled the same way.
+                    let hostMatches = saved.filter { $0.endpoint.host == endpoint.host }
+                    if !hostMatches.isEmpty { matches = hostMatches }
+                }
+            }
         }
-        let saved = archive.computers.filter(\.saved)
-        var matches = name.map { displayName in
-            saved.filter { $0.displayName.caseInsensitiveCompare(displayName) == .orderedSame }
-        } ?? []
-        if matches.isEmpty, let endpoint { matches = saved.filter { $0.endpoint == endpoint } }
         if matches.count > 1, let username = link.username {
             let accounts = matches.filter { $0.username == username }
             if !accounts.isEmpty { matches = accounts }
