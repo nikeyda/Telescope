@@ -15,7 +15,7 @@ struct RepeatKeyButton: UIViewRepresentable {
         control.addTarget(control, action: #selector(Control.beginHold), for: [.touchDown, .touchDragEnter])
         control.addTarget(control, action: #selector(Control.activate), for: .primaryActionTriggered)
         control.addTarget(control, action: #selector(Control.cancelHold), for: [.touchCancel, .touchUpOutside, .touchDragExit])
-        NotificationCenter.default.addObserver(control, selector: #selector(Control.cancelHold),
+        NotificationCenter.default.addObserver(control, selector: #selector(Control.cancelForFocusChange(_:)),
                                                name: UIApplication.willResignActiveNotification, object: nil)
         return control
     }
@@ -40,6 +40,25 @@ struct RepeatKeyButton: UIViewRepresentable {
         private var action: (() -> Void)?
         private var repeating: Task<Void, Never>?
         private var sent = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            cancelHold()
+            let notifications = NotificationCenter.default
+            notifications.removeObserver(self, name: UIWindow.didResignKeyNotification, object: nil)
+            notifications.removeObserver(self, name: UIScene.willDeactivateNotification, object: nil)
+            guard let window else { return }
+            notifications.addObserver(self, selector: #selector(cancelForFocusChange(_:)),
+                                      name: UIWindow.didResignKeyNotification, object: window)
+            if let scene = window.windowScene {
+                notifications.addObserver(self, selector: #selector(cancelForFocusChange(_:)),
+                                          name: UIScene.willDeactivateNotification, object: scene)
+            }
+        }
+
+        @objc func cancelForFocusChange(_ notification: Notification) {
+            cancelHold()
+        }
 
         @objc func beginHold() {
             cancelHold()

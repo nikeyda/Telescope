@@ -70,6 +70,88 @@ import XCTest
         XCTAssertEqual(VNCKeyRepeat(delay: .nan, interval: -1), VNCKeyRepeat())
     }
 
+    func testToolbarRepeatStopsWhenAnotherWindowBecomesKey() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previous = scene.keyWindow
+        let owner = UIWindow(windowScene: scene)
+        let other = UIWindow(windowScene: scene)
+        owner.rootViewController = UIViewController()
+        other.rootViewController = UIViewController()
+        let button = RepeatKeyButton.Control(type: .system)
+        defer {
+            button.cancelHold()
+            owner.isHidden = true
+            other.isHidden = true
+            previous?.makeKey()
+        }
+        owner.rootViewController?.view.addSubview(button)
+        owner.makeKeyAndVisible()
+        XCTAssertTrue(owner.isKeyWindow)
+        XCTAssertTrue(button.window === owner)
+        var taps = 0
+        button.actionForPress = { { taps += 1 } }
+        button.timing = VNCKeyRepeat(delay: 0.15, interval: 0.05)
+        button.beginHold()
+        try await waitForToolbarRepeat { taps > 0 }
+
+        let beforeUnrelatedWindow = taps
+        NotificationCenter.default.post(name: UIWindow.didResignKeyNotification, object: other)
+        try await waitForToolbarRepeat { taps > beforeUnrelatedWindow }
+        other.makeKeyAndVisible()
+        XCTAssertTrue(other.isKeyWindow)
+        XCTAssertFalse(owner.isKeyWindow)
+        let tapsAtFocusChange = taps
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(taps, tapsAtFocusChange, "The old window continued holding the remote key")
+
+        owner.makeKey()
+        button.beginHold()
+        button.activate()
+        XCTAssertEqual(taps, tapsAtFocusChange + 1, "A new short press should still reach the remote")
+    }
+
+    func testToolbarRepeatStopsWhenItsSceneDeactivatesOrTheButtonLeavesItsWindow() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previous = scene.keyWindow
+        let owner = UIWindow(windowScene: scene)
+        owner.rootViewController = UIViewController()
+        let button = RepeatKeyButton.Control(type: .system)
+        defer {
+            button.cancelHold()
+            owner.isHidden = true
+            previous?.makeKey()
+        }
+        owner.rootViewController?.view.addSubview(button)
+        owner.makeKeyAndVisible()
+        XCTAssertTrue(button.window === owner)
+        var taps = 0
+        button.actionForPress = { { taps += 1 } }
+        button.timing = VNCKeyRepeat(delay: 0.15, interval: 0.05)
+        button.beginHold()
+        try await waitForToolbarRepeat { taps > 0 }
+        NotificationCenter.default.post(name: UIScene.willDeactivateNotification, object: scene)
+        let tapsAtDeactivation = taps
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(taps, tapsAtDeactivation, "The inactive scene continued holding the remote key")
+
+        let beforeNewHold = taps
+        button.beginHold()
+        try await waitForToolbarRepeat { taps > beforeNewHold }
+        button.removeFromSuperview()
+        XCTAssertNil(button.window)
+        let tapsAtRemoval = taps
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(taps, tapsAtRemoval, "The detached button continued holding the remote key")
+    }
+
+    private func waitForToolbarRepeat(_ received: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !received(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(15)) }
+        XCTAssertTrue(received(), "The held toolbar key never started repeating")
+    }
+
     func testIndividualFunctionKeysRetainTheirOrderAndMatchTheFunctionMenu() {
         let keys = DeskToolbarButton.buttons(in: "f12,left,enter,f1,f7")
         XCTAssertEqual(keys.map(\.title), ["F12", "向左", "Return", "F1", "F7"])
