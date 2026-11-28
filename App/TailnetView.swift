@@ -188,13 +188,13 @@ struct TailnetView: View {
                 .accessibilityIdentifier("tailnet.localNetworkNotice")
             Text("请在这台设备上打开 Tailscale 并连接网络。")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
             HStack {
                 Link("设置 Tailscale", destination: Self.setupURL)
                 Button("忽略") { ignoredLocalNetworkNotice = true }
                     .accessibilityIdentifier("tailnet.ignoreLocalNetworkNotice")
             }
             .buttonStyle(.bordered)
+            .tint(.primary)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
